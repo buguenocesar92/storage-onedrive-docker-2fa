@@ -1,0 +1,24 @@
+auth.storage.test {
+  tls internal
+  header X-Content-Type-Options nosniff
+  reverse_proxy authelia:9091
+}
+files.storage.test {
+  tls internal
+  header {
+    X-Content-Type-Options nosniff
+    X-Frame-Options DENY
+    Referrer-Policy no-referrer
+  }
+  route {
+    request_header -Remote-User
+    request_header -Remote-Groups
+    request_header -Remote-Email
+    request_header -Remote-Name
+    forward_auth authelia:9091 {
+      uri /api/authz/forward-auth
+      copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
+    }
+    reverse_proxy storage-portal:8080
+  }
+}

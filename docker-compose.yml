@@ -1,0 +1,115 @@
+name: storage-union
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+services:
+  rclone-mount:
+    image: ${RCLONE_IMAGE:-rclone/rclone:latest}
+    restart: unless-stopped
+    cap_add: [SYS_ADMIN]
+    devices: [/dev/fuse:/dev/fuse]
+    security_opt: [apparmor:unconfined]
+    entrypoint: [/bin/sh, /scripts/mount.sh]
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./config/rclone:/config/rclone
+      - ./data/cache:/cache
+      - type: bind
+        source: ./data/mounts
+        target: /data
+        bind:
+          propagation: rshared
+    secrets: [rclone_password]
+    networks: [egress-rclone]
+    stop_grace_period: 5m
+    healthcheck:
+      test: [CMD-SHELL, 'grep -q " /data/respaldos .* - fuse.rclone " /proc/self/mountinfo && timeout 15 ls /data/respaldos >/dev/null']
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
+    logging: *logging
+
+  storage-portal:
+    build:
+      context: ./portal
+      args:
+        FILEBROWSER_IMAGE: ${FILEBROWSER_IMAGE:-filebrowser/filebrowser:v2.30.0}
+    image: storage-portal-local
+    user: "1000:1000"
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:size=64m,mode=1777]
+    volumes:
+      - ./data/filebrowser:/database
+      - type: bind
+        source: ./data/mounts
+        target: /data
+        bind:
+          propagation: rslave
+    depends_on:
+      rclone-mount:
+        condition: service_healthy
+    networks: [net-storage]
+    logging: *logging
+
+  authelia:
+    image: ${AUTHELIA_IMAGE:-authelia/authelia:4.39}
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:size=32m,mode=1777]
+    environment:
+      AUTHELIA_SESSION_SECRET_FILE: /run/secrets/session_key
+      AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /run/secrets/storage_key
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: /run/secrets/jwt_key
+    volumes:
+      - ./runtime/authelia:/config:ro
+      - ./config/authelia/users_database.yml:/users/users_database.yml:ro
+      - ./data/authelia:/var/lib/authelia
+    secrets: [session_key, storage_key, jwt_key, smtp_password]
+    networks: [net-storage, egress-auth]
+    logging: *logging
+
+  auth-proxy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - "${BIND_IP:-127.0.0.1}:${HTTP_PORT:-80}:80"
+      - "${BIND_IP:-127.0.0.1}:${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./runtime/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy:/data
+      - caddy-config:/config
+    depends_on: [authelia, storage-portal]
+    networks: [net-storage, egress-proxy]
+    logging: *logging
+
+networks:
+  net-storage:
+    internal: true
+  egress-rclone: {}
+  egress-auth: {}
+  egress-proxy: {}
+volumes:
+  caddy-config: {}
+secrets:
+  rclone_password:
+    file: ./secrets/rclone_password
+  session_key:
+    file: ./secrets/session_key
+  storage_key:
+    file: ./secrets/storage_key
+  jwt_key:
+    file: ./secrets/jwt_key
+  smtp_password:
+    file: ./secrets/smtp_password

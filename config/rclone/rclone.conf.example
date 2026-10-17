@@ -1,0 +1,23 @@
+# Plantilla: ejecutar rclone config para completar OAuth y drive_id.
+# No pegar tokens en tickets, Git ni logs. El archivo activo será cifrado.
+[onedrive1]
+type = onedrive
+# token = JSON generado por rclone config
+# drive_id = ID obtenido con el asistente
+# drive_type = personal
+
+[onedrive2]
+type = onedrive
+# token = JSON generado por rclone config
+# drive_id = ID obtenido con el asistente
+# drive_type = personal
+
+[union-onedrive]
+type = union
+upstreams = onedrive1:Respaldos onedrive2:Respaldos
+# mfs en acción y creación: nuevos archivos en la cuenta con más espacio.
+action_policy = mfs
+create_policy = mfs
+search_policy = ff
+cache_time = 120
+# Añadir onedrive3:Respaldos a upstreams al incorporar una cuenta.

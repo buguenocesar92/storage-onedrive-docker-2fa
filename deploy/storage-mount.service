@@ -1,0 +1,13 @@
+[Unit]
+Description=Shared mount propagation for Storage Union
+Before=docker.service
+After=local-fs.target
+RequiresMountsFor=/opt/storage-union/data/mounts
+
+[Service]
+Type=oneshot
+ExecStart=/opt/storage-union/scripts/prepare-mount.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
